@@ -20,8 +20,8 @@ main(void)
     mknod("console", CONSOLE, 0);
     open("console", O_RDWR);
   }
-  dup(0);  // stdout
-  dup(0);  // stderr
+  dup(0);  // stdout, fd=1
+  dup(0);  // stderr, fd=2
 
   for(;;){
     printf("init: starting sh\n");
@@ -31,6 +31,7 @@ main(void)
       exit(1);
     }
     if(pid == 0){
+      // start shell in child process
       exec("sh", argv);
       printf("init: exec sh failed\n");
       exit(1);

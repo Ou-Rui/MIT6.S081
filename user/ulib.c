@@ -14,6 +14,7 @@ strcpy(char *s, const char *t)
   return os;
 }
 
+// return 0 for equal
 int
 strcmp(const char *p, const char *q)
 {
@@ -22,6 +23,7 @@ strcmp(const char *p, const char *q)
   return (uchar)*p - (uchar)*q;
 }
 
+// return actual length of char s[]
 uint
 strlen(const char *s)
 {
