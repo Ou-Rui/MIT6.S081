@@ -259,8 +259,8 @@ int
 fork(void)
 {
   int i, pid;
-  struct proc *np;
-  struct proc *p = myproc();
+  struct proc *np;    // child proc
+  struct proc *p = myproc();  // parent proc
 
   // Allocate process.
   if((np = allocproc()) == 0){
@@ -273,9 +273,9 @@ fork(void)
     release(&np->lock);
     return -1;
   }
-  np->sz = p->sz;
+  np->sz = p->sz;   // memory size
 
-  np->parent = p;
+  np->parent = p;   // parent
 
   // copy saved user registers.
   *(np->trapframe) = *(p->trapframe);
@@ -294,6 +294,8 @@ fork(void)
   pid = np->pid;
 
   np->state = RUNNABLE;
+
+  np->mask = p->mask;   // copy mask
 
   release(&np->lock);
 
