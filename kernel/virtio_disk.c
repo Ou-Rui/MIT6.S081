@@ -16,6 +16,7 @@
 #include "fs.h"
 #include "buf.h"
 #include "virtio.h"
+#include "proc.h"
 
 // the address of virtio mmio register r.
 #define R(r) ((volatile uint32 *)(VIRTIO0 + (r)))
@@ -201,9 +202,13 @@ virtio_disk_rw(struct buf *b, int write)
   buf0.reserved = 0;
   buf0.sector = sector;
 
+  // private KPT
+  struct proc *p = myproc();
+  // pagetable_t kpt = p->kpt;
+
   // buf0 is on a kernel stack, which is not direct mapped,
   // thus the call to kvmpa().
-  disk.desc[idx[0]].addr = (uint64) kvmpa((uint64) &buf0);
+  disk.desc[idx[0]].addr = (uint64) kvmpa(p->kpt, (uint64) &buf0);
   disk.desc[idx[0]].len = sizeof(buf0);
   disk.desc[idx[0]].flags = VRING_DESC_F_NEXT;
   disk.desc[idx[0]].next = idx[1];

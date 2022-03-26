@@ -21,6 +21,10 @@ static void freeproc(struct proc *p);
 
 extern char trampoline[]; // trampoline.S
 
+extern char etext[];  // kernel.ld sets this to end of kernel code.
+
+extern pagetable_t kernel_pagetable; // vm.c
+
 // initialize the proc table at boot time.
 void
 procinit(void)
@@ -31,15 +35,15 @@ procinit(void)
   for(p = proc; p < &proc[NPROC]; p++) {
       initlock(&p->lock, "proc");
 
-      // Allocate a page for the process's kernel stack.
-      // Map it high in memory, followed by an invalid
-      // guard page.
-      char *pa = kalloc();
-      if(pa == 0)
-        panic("kalloc");
-      uint64 va = KSTACK((int) (p - proc));
-      kvmmap(va, (uint64)pa, PGSIZE, PTE_R | PTE_W);
-      p->kstack = va;
+      // // Allocate a page for the process's kernel stack.
+      // // Map it high in memory, followed by an invalid
+      // // guard page.
+      // char *pa = kalloc();
+      // if(pa == 0)
+      //   panic("kalloc");
+      // uint64 va = KSTACK((int) (p - proc));
+      // kvmmap(kernel_pagetable, va, (uint64)pa, PGSIZE, PTE_R | PTE_W);
+      // p->kstack = va;
   }
   kvminithart();
 }
@@ -121,6 +125,27 @@ found:
     return 0;
   }
 
+  // A private kernel page table
+  p->kpt = kvmcreate_kpt();
+  if(p->kpt == 0){
+    freeproc(p);
+    release(&p->lock);
+    return 0;
+  }
+
+  // Allocate a page for the process's kernel stack.
+  // Map it in p->kpt
+  char *pa = kalloc();
+  if(pa == 0)
+    panic("kalloc");
+  uint64 va = TRAMPOLINE - 2*PGSIZE;
+  kvmmap(p->kpt, va, (uint64)pa, PGSIZE, PTE_R | PTE_W);
+  p->kstack = va;
+
+  // vmprint(p->kpt);
+  // printf("allocproc: pid = %d, kstack = %p, pa = %p\n", 
+  //     p->pid, (uint64 *)p->kstack, (uint64 *)pa);
+  
   // Set up new context to start executing at forkret,
   // which returns to user space.
   memset(&p->context, 0, sizeof(p->context));
@@ -142,6 +167,13 @@ freeproc(struct proc *p)
   if(p->pagetable)
     proc_freepagetable(p->pagetable, p->sz);
   p->pagetable = 0;
+
+  // vmprint(p->kpt);
+  // printf("freeproc: pid = %d, kstack = %p\n", (uint64 *)p->kstack);
+  if(p->kpt)
+    proc_freepkpt(p->kpt, p->kstack);
+  p->kpt = 0;
+
   p->sz = 0;
   p->pid = 0;
   p->parent = 0;
@@ -193,6 +225,23 @@ proc_freepagetable(pagetable_t pagetable, uint64 sz)
   uvmunmap(pagetable, TRAMPOLINE, 1, 0);
   uvmunmap(pagetable, TRAPFRAME, 1, 0);
   uvmfree(pagetable, sz);
+}
+
+// Free a process's kernel page table
+void
+proc_freepkpt(pagetable_t kpt, uint64 kstack)
+{
+  uvmunmap(kpt, UART0, 1, 0);
+  uvmunmap(kpt, VIRTIO0, 1, 0);
+  // uvmunmap(kpt, CLINT, PGNUMROUNDUP(0x10000), 0);
+  uvmunmap(kpt, PLIC, PGNUMROUNDUP(0x400000), 0);
+  uvmunmap(kpt, KERNBASE, PGNUMROUNDUP((uint64)etext-KERNBASE), 0);
+  uvmunmap(kpt, (uint64)etext, PGNUMROUNDUP(PHYSTOP-(uint64)etext), 0);
+  uvmunmap(kpt, TRAMPOLINE, 1, 0);
+
+  uvmunmap(kpt, kstack, 1, 1);      // free the physical memory of kstack
+
+  kvmfree(kpt);
 }
 
 // a user program that calls exec("/init")
@@ -473,16 +522,27 @@ scheduler(void)
         // before jumping back to us.
         p->state = RUNNING;
         c->proc = p;
+
+        // switch to process's privat KPT
+        w_satp(MAKE_SATP(p->kpt));
+        sfence_vma();
+
         swtch(&c->context, &p->context);
 
         // Process is done running for now.
         // It should have changed its p->state before coming back.
+        kvminithart();
         c->proc = 0;
 
         found = 1;
       }
       release(&p->lock);
     }
+
+    // if no process is running, use global KPT
+    if (found == 0)
+      kvminithart();
+    
 #if !defined (LAB_FS)
     if(found == 0) {
       intr_on();
