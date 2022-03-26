@@ -141,10 +141,6 @@ found:
   uint64 va = TRAMPOLINE - 2*PGSIZE;
   kvmmap(p->kpt, va, (uint64)pa, PGSIZE, PTE_R | PTE_W);
   p->kstack = va;
-
-  // vmprint(p->kpt);
-  // printf("allocproc: pid = %d, kstack = %p, pa = %p\n", 
-  //     p->pid, (uint64 *)p->kstack, (uint64 *)pa);
   
   // Set up new context to start executing at forkret,
   // which returns to user space.
@@ -168,8 +164,7 @@ freeproc(struct proc *p)
     proc_freepagetable(p->pagetable, p->sz);
   p->pagetable = 0;
 
-  // vmprint(p->kpt);
-  // printf("freeproc: pid = %d, kstack = %p\n", (uint64 *)p->kstack);
+  // free process's KPT
   if(p->kpt)
     proc_freepkpt(p->kpt, p->kstack);
   p->kpt = 0;
@@ -233,7 +228,7 @@ proc_freepkpt(pagetable_t kpt, uint64 kstack)
 {
   uvmunmap(kpt, UART0, 1, 0);
   uvmunmap(kpt, VIRTIO0, 1, 0);
-  // uvmunmap(kpt, CLINT, PGNUMROUNDUP(0x10000), 0);
+  uvmunmap(kpt, CLINT, PGNUMROUNDUP(0x10000), 0);
   uvmunmap(kpt, PLIC, PGNUMROUNDUP(0x400000), 0);
   uvmunmap(kpt, KERNBASE, PGNUMROUNDUP((uint64)etext-KERNBASE), 0);
   uvmunmap(kpt, (uint64)etext, PGNUMROUNDUP(PHYSTOP-(uint64)etext), 0);
