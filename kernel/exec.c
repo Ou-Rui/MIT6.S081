@@ -51,6 +51,8 @@ exec(char *path, char **argv)
     uint64 sz1;
     if((sz1 = uvmalloc(pagetable, sz, ph.vaddr + ph.memsz)) == 0)
       goto bad;
+    if(sz1 >= PLIC)
+      goto bad;
     sz = sz1;
     if(ph.vaddr % PGSIZE != 0)
       goto bad;
@@ -72,7 +74,7 @@ exec(char *path, char **argv)
     goto bad;
   sz = sz1;
   uvmclear(pagetable, sz-2*PGSIZE);
-  sp = sz;
+  sp = sz;    // stack pointer
   stackbase = sp - PGSIZE;
 
   // Push argument strings, prepare rest of stack in ustack.
@@ -97,6 +99,18 @@ exec(char *path, char **argv)
   if(copyout(pagetable, sp, (char *)ustack, (argc+1)*sizeof(uint64)) < 0)
     goto bad;
 
+  // KPT
+  pte_t *pte, *k_pte;
+  // Free old User Addr Mapping
+  uvmunmap(p->kpt, 0, PGROUNDUP(oldsz)/PGSIZE, 0);
+  // Copy new User Addr Mapping from new UPT
+  for (uint64 va = 0; va < sz; va += PGSIZE)
+  {
+    pte = walk(pagetable, va, 0);
+    k_pte = walk(p->kpt, va, 1);
+    *k_pte = (*pte) & (~PTE_U);
+  }
+
   // arguments to user main(argc, argv)
   // argc is returned via the system call return
   // value, which goes in a0.
@@ -107,7 +121,7 @@ exec(char *path, char **argv)
     if(*s == '/')
       last = s+1;
   safestrcpy(p->name, last, sizeof(p->name));
-    
+
   // Commit to the user image.
   oldpagetable = p->pagetable;
   p->pagetable = pagetable;

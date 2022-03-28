@@ -1,0 +1,1 @@
+srcva + len < 0, overflow..

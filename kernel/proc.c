@@ -160,14 +160,15 @@ freeproc(struct proc *p)
   if(p->trapframe)
     kfree((void*)p->trapframe);
   p->trapframe = 0;
-  if(p->pagetable)
-    proc_freepagetable(p->pagetable, p->sz);
-  p->pagetable = 0;
 
   // free process's KPT
   if(p->kpt)
-    proc_freepkpt(p->kpt, p->kstack);
+    proc_freepkpt(p->kpt, p->kstack, p->sz);
   p->kpt = 0;
+
+  if(p->pagetable)
+    proc_freepagetable(p->pagetable, p->sz);
+  p->pagetable = 0;
 
   p->sz = 0;
   p->pid = 0;
@@ -224,15 +225,17 @@ proc_freepagetable(pagetable_t pagetable, uint64 sz)
 
 // Free a process's kernel page table
 void
-proc_freepkpt(pagetable_t kpt, uint64 kstack)
+proc_freepkpt(pagetable_t kpt, uint64 kstack, uint64 user_sz)
 {
   uvmunmap(kpt, UART0, 1, 0);
   uvmunmap(kpt, VIRTIO0, 1, 0);
-  uvmunmap(kpt, CLINT, PGNUMROUNDUP(0x10000), 0);
+  // uvmunmap(kpt, CLINT, PGNUMROUNDUP(0x10000), 0);
   uvmunmap(kpt, PLIC, PGNUMROUNDUP(0x400000), 0);
   uvmunmap(kpt, KERNBASE, PGNUMROUNDUP((uint64)etext-KERNBASE), 0);
   uvmunmap(kpt, (uint64)etext, PGNUMROUNDUP(PHYSTOP-(uint64)etext), 0);
   uvmunmap(kpt, TRAMPOLINE, 1, 0);
+
+  uvmunmap(kpt, 0, PGNUMROUNDUP(user_sz), 0);
 
   uvmunmap(kpt, kstack, 1, 1);      // free the physical memory of kstack
 
@@ -256,6 +259,7 @@ void
 userinit(void)
 {
   struct proc *p;
+  pte_t *pte, *k_pte;
 
   p = allocproc();
   initproc = p;
@@ -264,6 +268,10 @@ userinit(void)
   // and data into it.
   uvminit(p->pagetable, initcode, sizeof(initcode));
   p->sz = PGSIZE;
+
+  pte = walk(p->pagetable, 0, 0);
+  k_pte = walk(p->kpt, 0, 1);
+  *k_pte = (*pte) & (~PTE_U);
 
   // prepare for the very first "return" from kernel to user.
   p->trapframe->epc = 0;      // user program counter
@@ -287,10 +295,31 @@ growproc(int n)
 
   sz = p->sz;
   if(n > 0){
+
+    // if(sz + n >= PLIC)  // Limit UPT up to PLIC
+    //   return -1;
+
+    // // KPT
+    // pte_t *pte, *k_pte;
+    // // Copy new User Addr Mapping from new UPT
+    // for (uint64 va = sz; va < sz + n; va += PGSIZE)
+    // {
+    //   pte = walk(p->pagetable, va, 0);
+    //   k_pte = walk(p->kpt, va, 1);
+    //   *k_pte = (*pte) & (~PTE_U);
+    // }
+
     if((sz = uvmalloc(p->pagetable, sz, sz + n)) == 0) {
       return -1;
     }
+
   } else if(n < 0){
+
+    // for (uint64 va = sz - PGSIZE; va >= sz + n; va -= PGSIZE)
+    // {
+    //   uvmunmap(p->kpt, va, 1, 0);
+    // }
+
     sz = uvmdealloc(p->pagetable, sz, sz + n);
   }
   p->sz = sz;
@@ -317,6 +346,16 @@ fork(void)
     release(&np->lock);
     return -1;
   }
+
+  // Copy User Addr Mapping in KPT
+  pte_t *pte, *k_pte;
+  for (uint64 va = 0; va < p->sz; va += PGSIZE)
+  {
+    pte = walk(np->pagetable, va, 0);
+    k_pte = walk(np->kpt, va, 1);
+    *k_pte = (*pte) & (~PTE_U);
+  }
+
   np->sz = p->sz;
 
   np->parent = p;

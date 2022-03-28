@@ -92,7 +92,7 @@ int             fork(void);
 int             growproc(int);
 pagetable_t     proc_pagetable(struct proc *);
 void            proc_freepagetable(pagetable_t, uint64);
-void            proc_freepkpt(pagetable_t pagetable, uint64 sz);
+void            proc_freepkpt(pagetable_t kpt, uint64 kstack, uint64 user_sz);
 int             kill(int);
 struct cpu*     mycpu(void);
 struct cpu*     getmycpu(void);
@@ -165,6 +165,10 @@ void            kvminithart(void);
 uint64          kvmpa(pagetable_t, uint64);
 void            kvmmap(pagetable_t, uint64, uint64, uint64, int);
 void            kvmfree(pagetable_t pagetable);
+void            kvmfree_upt(pagetable_t kpt, uint64 sz);
+uint64          kvmalloc(pagetable_t pagetable, uint64 oldsz, uint64 newsz);
+int             kvmcopy(pagetable_t old, pagetable_t new, uint64 sz);
+int             kvmcopy_from_upt(pagetable_t upt, pagetable_t kpt, uint64 sz);
 int             mappages(pagetable_t, uint64, uint64, uint64, int);
 pagetable_t     uvmcreate(void);
 void            uvminit(pagetable_t, uchar *, uint);
@@ -183,6 +187,7 @@ int             copyin(pagetable_t, char *, uint64, uint64);
 int             copyinstr(pagetable_t, char *, uint64, uint64);
 void            vmprint(pagetable_t pagetable);   // for print
 void            vmprint_pgtbl(pagetable_t pagetable, int level);    // for print
+pte_t *         walk(pagetable_t pagetable, uint64 va, int alloc);
 
 // plic.c
 void            plicinit(void);
@@ -228,3 +233,7 @@ int             sockread(struct sock *, uint64, int);
 int             sockwrite(struct sock *, uint64, int);
 void            sockrecvudp(struct mbuf*, uint32, uint16, uint16);
 #endif
+
+// vmcopyin.c
+int             copyin_new(pagetable_t pagetable, char *dst, uint64 srcva, uint64 len);
+int             copyinstr_new(pagetable_t pagetable, char *dst, uint64 srcva, uint64 max);
