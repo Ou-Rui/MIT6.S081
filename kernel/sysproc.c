@@ -8,14 +8,25 @@
 #include "proc.h"
 
 uint64 
-sys_sigalarm(int n, void (*fn))
+sys_sigalarm(void)
 {
+  struct proc *p = myproc();
+  int n;
+  uint64 fn;
+  if(argint(0, &n) < 0 || argaddr(1, &fn) < 0 || n < 0)
+    return -1;
+  p->interval = n;
+  p->cur_tick = 0;
+  p->handler = fn;
   return 0;
 }
 
 uint64
 sys_sigreturn(void)
 {
+  struct proc *p = myproc();
+  p->cur_tick = 0;
+  *p->trapframe = *p->alarm_tf;
   return 0;
 }
 
