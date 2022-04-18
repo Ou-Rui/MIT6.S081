@@ -7,6 +7,18 @@
 #include "spinlock.h"
 #include "proc.h"
 
+uint64 
+sys_sigalarm(int n, void (*fn))
+{
+  return 0;
+}
+
+uint64
+sys_sigreturn(void)
+{
+  return 0;
+}
+
 uint64
 sys_exit(void)
 {
@@ -61,6 +73,9 @@ sys_sleep(void)
   if(argint(0, &n) < 0)
     return -1;
   acquire(&tickslock);
+
+  backtrace();
+
   ticks0 = ticks;
   while(ticks - ticks0 < n){
     if(myproc()->killed){
