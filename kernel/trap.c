@@ -67,20 +67,30 @@ usertrap(void)
     syscall();
   } else if((which_dev = devintr()) != 0){
     // ok
-  } else if(r_scause() == 15) {
+  } else if(r_scause() == 13 || r_scause() == 15) {
+    // SCAUSE == 13, Load Page Fault
     // SCAUSE == 15, Store Page Fault
     uint64 va = r_stval();
-    printf("Store PageFault at va=%p\n", va);
-    va = PGROUNDDOWN(va);   // align
-    char* pa = kalloc();
-    if (pa == 0) {
-      // OOM, Kill the Process
+    // printf("PageFault at va=%p\n", va);
+    if (va >= p->sz) {
+      // printf("va higher than p->sz = %p\n", p->sz);
+      p->killed = 1;
+    } else if (va < p->trapframe->sp) {
+      // printf("va lower than stack = %p\n", p->trapframe->sp);
       p->killed = 1;
     } else {
-      memset(pa, 0, PGSIZE);
-      if(mappages(p->pagetable, va, PGSIZE, (uint64)pa, PTE_W|PTE_R|PTE_U) != 0){
-        kfree(pa);
+      // valid va
+      va = PGROUNDDOWN(va);   // align
+      char* pa = kalloc();
+      if (pa == 0) {
+        // OOM, Kill the Process
         p->killed = 1;
+      } else {
+        memset(pa, 0, PGSIZE);
+        if(mappages(p->pagetable, va, PGSIZE, (uint64)pa, PTE_W|PTE_X|PTE_R|PTE_U) != 0){
+          kfree(pa);
+          p->killed = 1;
+        }
       }
     }
   } else {
@@ -98,6 +108,7 @@ usertrap(void)
 
   usertrapret();
 }
+
 
 //
 // return to user space
