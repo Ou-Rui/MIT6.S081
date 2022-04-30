@@ -5,6 +5,9 @@
 #include "riscv.h"
 #include "defs.h"
 #include "fs.h"
+#include "spinlock.h"
+#include "proc.h"
+
 
 /*
  * the kernel's page table.
@@ -311,28 +314,89 @@ uvmcopy(pagetable_t old, pagetable_t new, uint64 sz)
   pte_t *pte;
   uint64 pa, i;
   uint flags;
-  char *mem;
 
-  for(i = 0; i < sz; i += PGSIZE){
+  for(i = 0; i < sz; i += PGSIZE) {
     if((pte = walk(old, i, 0)) == 0)
       panic("uvmcopy: pte should exist");
     if((*pte & PTE_V) == 0)
       panic("uvmcopy: page not present");
+    // clear PTE_W, set PTE_COW
+    *pte = (*pte & (~PTE_W)) | PTE_COW; 
     pa = PTE2PA(*pte);
     flags = PTE_FLAGS(*pte);
-    if((mem = kalloc()) == 0)
+    // if((mem = kalloc()) == 0)
+    //   goto err;
+    // memmove(mem, (char*)pa, PGSIZE);
+    // if(mappages(new, i, PGSIZE, (uint64)mem, flags) != 0){
+    //    kfree(mem);
+    pte = walk(new, i, 1);
+    if (pte == 0)
       goto err;
-    memmove(mem, (char*)pa, PGSIZE);
-    if(mappages(new, i, PGSIZE, (uint64)mem, flags) != 0){
-      kfree(mem);
-      goto err;
-    }
+    *pte = PA2PTE(pa) | flags;
+    // if(mappages(new, i, PGSIZE, (uint64)pa, flags) != 0){
+    //   kfree((char*)pa);
+    //   goto err;
+    // }
+    acquire(&rc_lock);
+    rc[PA2INDEX(pa)]++;
+    release(&rc_lock);
   }
   return 0;
 
  err:
   uvmunmap(new, 0, i / PGSIZE, 1);
   return -1;
+}
+
+int 
+uvmcow(pagetable_t pt, uint64 va, uint8 istrap)
+{
+  pte_t *pte;
+  uint64 pa;
+  uint flags;
+  char *mem;
+
+  if((pte = walk(pt, va, 0)) == 0)
+    panic("uvmcow: pte should exist");
+  if((*pte & PTE_V) == 0)
+    panic("uvmcow: page not present");
+  if ((*pte & PTE_W) != 0)
+    panic("uvmcow: page should not be writable");
+  if ((*pte & PTE_COW) == 0)
+    panic("uvmcow: page not cow");
+
+  acquire(&rc_lock);
+  pa = PTE2PA(*pte);
+  uint64 idx = PA2INDEX(pa);
+  if (rc[idx] == 0) 
+    panic("uvmcow: rc = 0");
+
+  if (rc[idx] == 1) {
+    // the last reference
+    // set PTE_W, clear PTE_COW
+    *pte = (*pte | PTE_W) & (~PTE_COW);
+  } else {
+    // rc > 1
+    if((mem = kalloc()) == 0) {
+      if (istrap == 1) 
+        myproc()->killed = 1;
+      release(&rc_lock);
+      return -1;
+    }
+    flags = (PTE_FLAGS(*pte) | PTE_W) & (~PTE_COW);
+    *pte = PA2PTE((uint64)mem) | flags;
+    memmove(mem, (char*)pa, PGSIZE);
+    rc[idx]--;
+    // if(mappages(pt, va, PGSIZE, (uint64)mem, flags) != 0){
+    //   kfree(mem);
+    //   goto err;
+    // }
+  }
+  release(&rc_lock);
+  return 0;
+
+//  err:
+//   panic("uvmcow: error");
 }
 
 // mark a PTE invalid for user access.
@@ -355,12 +419,23 @@ int
 copyout(pagetable_t pagetable, uint64 dstva, char *src, uint64 len)
 {
   uint64 n, va0, pa0;
+  pte_t *pte;
 
   while(len > 0){
     va0 = PGROUNDDOWN(dstva);
-    pa0 = walkaddr(pagetable, va0);
-    if(pa0 == 0)
+    if (va0 > MAXVA)  
       return -1;
+    if((pte = walk(pagetable, va0, 0)) == 0)
+      return -1;
+    if((*pte & PTE_V) == 0)
+      return -1;
+    if ((*pte & PTE_U) == 0)
+      return -1;
+    if ( ((*pte & PTE_W) == 0) && ((*pte & PTE_COW) != 0) 
+          && uvmcow(pagetable, va0, 0) == -1 )
+      return -1;
+
+    pa0 = PTE2PA(*pte);
     n = PGSIZE - (dstva - va0);
     if(n > len)
       n = len;
