@@ -1,0 +1,6 @@
+1. t1 find the table do not contain key=1
+2. t1 goes into insert()
+3. t2 find the table do not contain key=2
+4. t2 goes into insert()
+5. t1 exec the rest part of insert()
+6. t2 exec the rest part of insert()
