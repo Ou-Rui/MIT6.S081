@@ -11,8 +11,8 @@
 #ifdef LAB_LOCK
 #define NLOCK 500
 
-static struct spinlock *locks[NLOCK];
-struct spinlock lock_locks;
+static struct spinlock *locks[NLOCK];   // lock_list
+struct spinlock lock_locks;   // the lock for lock_list——“locks”
 
 void
 freelock(struct spinlock *lk)
