@@ -59,17 +59,6 @@ binit(void)
     bcache.bucket[0].next->prev = b;
     bcache.bucket[0].next = b;
   }
-  
-  // Create linked list of buffers
-  // bcache.head.prev = &bcache.head;
-  // bcache.head.next = &bcache.head;
-  // for(b = bcache.buf; b < bcache.buf+NBUF; b++){
-  //   b->next = bcache.head.next;
-  //   b->prev = &bcache.head;
-  //   initsleeplock(&b->lock, "buffer");
-  //   bcache.head.next->prev = b;
-  //   bcache.head.next = b;
-  // }
 }
 
 // Look through buffer cache for block on device dev.
@@ -87,8 +76,8 @@ bget(uint dev, uint blockno)
   // search through the bucket[i]
   // no need for global lock, just acquire bucket lock
   acquire(&bcache.bucketlock[i]);
-  for(b = bcache.bucket[i].next; b != &bcache.bucket[i]; b = b->next){
-    if(b->dev == dev && b->blockno == blockno){
+  for (b = bcache.bucket[i].next; b != &bcache.bucket[i]; b = b->next) {
+    if (b->dev == dev && b->blockno == blockno) {
       b->refcnt++;
       release(&bcache.bucketlock[i]);
       // release(&bcache.lock);
@@ -104,8 +93,8 @@ bget(uint dev, uint blockno)
   acquire(&bcache.bucketlock[i]);
   // Check again: Is the block already cached? 
   // since we just release bucket lock once
-  for(b = bcache.bucket[i].next; b != &bcache.bucket[i]; b = b->next){
-    if(b->dev == dev && b->blockno == blockno){
+  for (b = bcache.bucket[i].next; b != &bcache.bucket[i]; b = b->next) {
+    if (b->dev == dev && b->blockno == blockno) {
       b->refcnt++;
       release(&bcache.bucketlock[i]);
       release(&bcache.lock);
@@ -113,55 +102,49 @@ bget(uint dev, uint blockno)
       return b;
     }
   }
-  // Recycle the least recently used (LRU) unused buffer.
-  struct buf *b_lru = 0;
-  uint mintick = 0xffffffff;
-  // linear search through bcache.buf[NBUF]
-  for(int idx = 0; idx < NBUF; idx++) {
-    b = &bcache.buf[idx];
-    // find LRU unused buffer
-    if (b->refcnt == 0 && b->tick < mintick) {
-      b_lru = b;
-      mintick = b_lru->tick;
-    }
-  }
-  if (b_lru == 0) 
-    panic("bget: no buffers");
-  int j = BLOCK2BUCKET(b_lru->blockno);
-  if (i != j) {
-    // different bucket
-    // remove b_lru from the origin bucket
-    acquire(&bcache.bucketlock[j]);
-    b_lru->next->prev = b_lru->prev;
-    b_lru->prev->next = b_lru->next;
-    release(&bcache.bucketlock[j]);
-    // add to current bucket
-    b_lru->next = bcache.bucket[i].next;
-    b_lru->prev = &bcache.bucket[i];
-    bcache.bucket[i].next->prev = b_lru;
-    bcache.bucket[i].next = b_lru;
-  }
-  b_lru->dev = dev;
-  b_lru->blockno = blockno;
-  b_lru->valid = 0;     // buffer invalid, wait for reading disk
-  b_lru->refcnt = 1;
-  release(&bcache.bucketlock[i]);
-  release(&bcache.lock);
-  acquiresleep(&b_lru->lock);
-  return b_lru;
 
-  // for(b = bcache.head.prev; b != &bcache.head; b = b->prev){
-  //   if(b->refcnt == 0) {
-  //     b->dev = dev;
-  //     b->blockno = blockno;
-  //     b->valid = 0;
-  //     b->refcnt = 1;
-  //     release(&bcache.lock);
-  //     acquiresleep(&b->lock);
-  //     return b;
-  //   }
-  // }
-  // panic("bget: no buffers");
+  // Recycle the least recently used (LRU) unused buffer.
+  // bucket loop
+  for (int k = 0; k < BC_NBUCKET; k++) {
+    struct buf *b_lru = 0;
+    uint mintick = 0xffffffff;
+    int j = (i + k) % BC_NBUCKET;
+    if (i != j)
+      acquire(&bcache.bucketlock[j]);
+    // find LRU buffer in bucket[j]
+    for (b = bcache.bucket[j].next; b != &bcache.bucket[j]; b = b->next) {
+      if (b->refcnt == 0 && b->tick < mintick) {
+        b_lru = b;
+        mintick = b_lru->tick;
+      }
+    }
+    if (b_lru) {
+      if (i != j) {
+        // different bucket
+        // remove b_lru from the origin bucket
+        b_lru->next->prev = b_lru->prev;
+        b_lru->prev->next = b_lru->next;
+        release(&bcache.bucketlock[j]);
+        // add to current bucket
+        b_lru->next = bcache.bucket[i].next;
+        b_lru->prev = &bcache.bucket[i];
+        bcache.bucket[i].next->prev = b_lru;
+        bcache.bucket[i].next = b_lru;
+      }
+      b_lru->dev = dev;
+      b_lru->blockno = blockno;
+      b_lru->valid = 0;     // buffer invalid, wait for reading disk
+      b_lru->refcnt = 1;
+      release(&bcache.bucketlock[i]);
+      release(&bcache.lock);
+      acquiresleep(&b_lru->lock);
+      return b_lru;
+    }
+
+    if (i != j)
+      release(&bcache.bucketlock[j]);
+  }
+  panic("bget: no buffers");
 }
 
 // Return a locked buf with the contents of the indicated block.
