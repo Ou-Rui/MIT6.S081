@@ -316,12 +316,41 @@ sys_open(void)
     }
   }
 
+  if (ip->type == T_SYMLINK && !(omode & O_NOFOLLOW)) {
+    // follow the symbolic link
+    uint i;
+    char path[MAXPATH];
+    for(i = 0; i < MAXDEPTH; i++) {
+      // read the target path of the symlink
+      if (readi(ip, 0, (uint64)path, 0, MAXPATH) != MAXPATH) {
+        iunlockput(ip);
+        end_op();
+        return -1;
+      }
+      // unlock and release current inode
+      iunlockput(ip);
+      // find target inode by pathname
+      if ((ip = namei(path)) == 0) {
+        end_op();
+        return -1;
+      }
+      ilock(ip);
+      if (ip->type != T_SYMLINK) 
+        break;
+    }
+    if (i == MAXDEPTH) {
+      iunlockput(ip);
+      end_op();
+      return -1;
+    }  
+  }
+
   if(ip->type == T_DEVICE && (ip->major < 0 || ip->major >= NDEV)){
     iunlockput(ip);
     end_op();
     return -1;
   }
-
+  // alloc struct file and fd 
   if((f = filealloc()) == 0 || (fd = fdalloc(f)) < 0){
     if(f)
       fileclose(f);
@@ -349,6 +378,36 @@ sys_open(void)
   end_op();
 
   return fd;
+}
+
+uint64
+sys_symlink(void)
+{
+  char target[MAXPATH], path[MAXPATH];
+  struct inode *ip;
+
+  if (argstr(0, target, MAXPATH) < 0 || argstr(1, path, MAXPATH) < 0)
+    return -1;
+
+  begin_op();
+
+  // Create inode at path for the symbolic link
+  // create() will return with lock
+  if ((ip = create(path, T_SYMLINK, 0, 0)) == 0) {
+    end_op();
+    return -1;
+  }
+
+  // Store the target path in the inode's data block
+  if (writei(ip, 0, (uint64)target, 0, MAXPATH) != MAXPATH) {
+    iunlockput(ip);
+    end_op();
+    return -1;
+  }
+
+  iunlockput(ip);
+  end_op();
+  return 0;
 }
 
 uint64
