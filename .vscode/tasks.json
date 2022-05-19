@@ -1,0 +1,11 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "make qemu-gdb",
+      "isBackground": true,
+      "command": "make",
+      "args": ["qemu-gdb"]
+    }
+  ]
+}

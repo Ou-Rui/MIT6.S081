@@ -52,6 +52,57 @@ fdalloc(struct file *f)
   return -1;
 }
 
+uint64 
+sys_mmap(void)
+{
+  uint64 addr, length, offset;
+  int prot, flags;
+  int fd;
+  struct file *f;
+
+  if (argaddr(0, &addr) < 0 || argaddr(1, &length) < 0 || argint(2, &prot) < 0 || 
+      argint(3, &flags) < 0 || argfd(4, &fd, &f) < 0 || argaddr(5, &offset) < 0)
+    return (uint64)-1;
+
+  // Contradiction: file not writable, while mmap need to write back
+  if ((!f->writable) && (prot & PROT_WRITE) && (flags == MAP_SHARED))
+    return (uint64)-1;
+
+  struct proc *p = myproc();
+  // find space for Memory-Mapped File
+  if (addr == 0) {
+    p->mmap_addr = PGROUNDDOWN(p->mmap_addr - length);
+    addr = p->mmap_addr;
+  }
+
+  // find an unused VMA
+  struct vma *v = p->vmalist;
+  for (int i = 0; i < NVMA; i++) {
+    if (v[i].addr == 0) {
+      v[i].addr = addr;
+      v[i].length = length;
+      v[i].prot = prot;
+      v[i].flags = flags;
+      v[i].f = f;
+      v[i].offset = offset;
+      v[i].npage = NPAGE(length);
+      filedup(f);   // increment file's reference counter
+      return addr;
+    }
+  }
+
+  return (uint64)-1;
+}
+
+uint64
+sys_munmap(void)
+{
+  uint64 addr, length;
+  if (argaddr(0, &addr) < 0 || argaddr(1, &length) < 0)
+    return (uint64)-1;
+  return munmap(addr, length);
+}
+
 uint64
 sys_dup(void)
 {

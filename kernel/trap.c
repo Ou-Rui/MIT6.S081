@@ -5,6 +5,9 @@
 #include "spinlock.h"
 #include "proc.h"
 #include "defs.h"
+#include "sleeplock.h"
+#include "fs.h"
+#include "file.h"
 
 struct spinlock tickslock;
 uint ticks;
@@ -65,6 +68,56 @@ usertrap(void)
     intr_on();
 
     syscall();
+  } else if (r_scause() == 13 || r_scause() == 15) {
+    // load/store page fault
+    
+    uint64 va = r_stval();
+    uint64 pa;
+    printf("scause=%d, va=%p\n", r_scause(), va);
+    if (va > MAXVA) {
+      p->killed = 1;
+      goto out;
+    }
+    struct vma *v = p->vmalist;
+    for (int i = 0; i < NVMA; i++) {
+      if (v[i].addr != 0 && (va >= v[i].addr) && (va <= v[i].addr + v[i].length)) {
+        struct file *f = v[i].f;
+        // page align
+        va = PGROUNDDOWN(va);
+        // printf("aligned va=%p\n", va);
+
+        // alloc physical address
+        if ((pa = (uint64)kalloc()) == 0) {
+          printf("mmap page fault: OOM");
+          p->killed = 1;
+          goto out;
+        }
+        memset((void*)pa, 0, PGSIZE);
+        printf("pa=%p\n", pa);
+
+        // read from file
+        begin_op();
+        ilock(f->ip);
+        if (readi(f->ip, 0, pa, va - v[i].addr, PGSIZE) < 0) {
+          printf("mmap page fault: read err");
+          iunlock(f->ip);
+          end_op();
+          kfree((void*)pa);
+          goto out;
+        }
+        iunlock(f->ip);
+        end_op();
+
+        // map va
+        if (mappages(p->pagetable, va, PGSIZE, pa, PTE_U | (v[i].prot << 1)) != 0) {
+          printf("mmap page fault: mappages err");
+          kfree((void*)pa);
+          goto out;
+        }
+        goto out;
+      }
+    }
+    panic("no such vma");
   } else if((which_dev = devintr()) != 0){
     // ok
   } else {
@@ -73,6 +126,7 @@ usertrap(void)
     p->killed = 1;
   }
 
+out:
   if(p->killed)
     exit(-1);
 

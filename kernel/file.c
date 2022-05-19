@@ -12,6 +12,7 @@
 #include "file.h"
 #include "stat.h"
 #include "proc.h"
+#include "fcntl.h"
 
 struct devsw devsw[NDEV];
 struct {
@@ -51,6 +52,18 @@ filedup(struct file *f)
   if(f->ref < 1)
     panic("filedup");
   f->ref++;
+  release(&ftable.lock);
+  return f;
+}
+
+// Decrement ref count for file f.
+struct file*
+fileundup(struct file *f)
+{
+  acquire(&ftable.lock);
+  if(f->ref < 1)
+    panic("fileundup");
+  f->ref--;
   release(&ftable.lock);
   return f;
 }
@@ -180,3 +193,52 @@ filewrite(struct file *f, uint64 addr, int n)
   return ret;
 }
 
+uint64
+munmap(uint64 addr, uint64 length)
+{
+  struct proc *p = myproc();
+  struct vma *v = p->vmalist;
+  for(int i = 0; i < NVMA; i++) {
+    // find the vma of addr
+    if (addr >= v[i].addr && addr <= v[i].addr + v[i].length 
+          && addr + length <= v[i].addr + v[i].length) {
+      uint npage = NPAGE(length);
+      struct file *f = v[i].f;
+      if (v[i].flags == MAP_SHARED) {
+        begin_op();
+        ilock(f->ip);        
+        uint64 offset = addr - v[i].addr + v[i].offset; // file's offset
+        for (int i = 0; i < npage; i++) {
+          uint64 addr_t = addr + i * PGSIZE;
+          uint64 offset_t = offset + i * PGSIZE;
+          if (walkaddr(p->pagetable, addr_t)) {
+            pte_t *pte = walk(p->pagetable, addr_t, 0);
+            uint64 flags = PTE_FLAGS(*pte);
+            if (flags & PTE_D)
+              writei(f->ip, 1, addr_t, offset_t, PGSIZE);
+          }
+        }
+        iunlock(f->ip);
+        end_op();
+      }
+      v[i].npage -= npage;
+      if (v[i].npage < 0) {
+        fileundup(f);
+        v[i].addr = 0;
+        v[i].length = 0;
+        v[i].prot = 0;
+        v[i].flags = 0;
+        v[i].f = 0;
+        v[i].offset = 0;
+        v[i].npage = 0;
+      }
+      for (int i = 0; i < npage; i++) {
+        if (walkaddr(p->pagetable, addr + i*PGSIZE)) {
+          uvmunmap(p->pagetable, addr + i*PGSIZE, 1, 1);
+        }
+      }      
+      return 0;
+    }
+  }
+  return (uint64)-1;
+}

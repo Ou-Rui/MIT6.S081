@@ -134,6 +134,8 @@ found:
   p->context.ra = (uint64)forkret;
   p->context.sp = p->kstack + PGSIZE;
 
+  p->mmap_addr = TRAPFRAME;
+
   return p;
 }
 
