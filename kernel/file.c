@@ -197,6 +197,7 @@ uint64
 munmap(uint64 addr, uint64 length)
 {
   struct proc *p = myproc();
+  printf("[%d]munmap start: addr=%p, len=%d\n", p->pid, addr, length);
   struct vma *v = p->vmalist;
   for(int i = 0; i < NVMA; i++) {
     // find the vma of addr
@@ -204,24 +205,32 @@ munmap(uint64 addr, uint64 length)
           && addr + length <= v[i].addr + v[i].length) {
       uint npage = NPAGE(length);
       struct file *f = v[i].f;
-      if (v[i].flags == MAP_SHARED) {
+
+      if (v[i].flags == MAP_SHARED && v[i].f->writable) {
         begin_op();
         ilock(f->ip);        
         uint64 offset = addr - v[i].addr + v[i].offset; // file's offset
+
         for (int i = 0; i < npage; i++) {
           uint64 addr_t = addr + i * PGSIZE;
           uint64 offset_t = offset + i * PGSIZE;
+
+          // Already mapped?
           if (walkaddr(p->pagetable, addr_t)) {
             pte_t *pte = walk(p->pagetable, addr_t, 0);
             uint64 flags = PTE_FLAGS(*pte);
+            // write back Dirty Pages only
             if (flags & PTE_D)
               writei(f->ip, 1, addr_t, offset_t, PGSIZE);
           }
         }
+
         iunlock(f->ip);
         end_op();
       }
+
       v[i].npage -= npage;
+      // no mmap pages, free the vma
       if (v[i].npage < 0) {
         fileundup(f);
         v[i].addr = 0;
@@ -232,11 +241,14 @@ munmap(uint64 addr, uint64 length)
         v[i].offset = 0;
         v[i].npage = 0;
       }
-      for (int i = 0; i < npage; i++) {
-        if (walkaddr(p->pagetable, addr + i*PGSIZE)) {
-          uvmunmap(p->pagetable, addr + i*PGSIZE, 1, 1);
+
+      // unmap vm pages
+      for (uint64 addr_t = v[i].addr; addr_t < v[i].addr + v[i].length; addr_t += PGSIZE) {
+        if (walkaddr(p->pagetable, addr_t)) {
+          printf("[%d]munmap: uvmunmap(), addr=%p\n", p->pid, addr_t);
+          uvmunmap(p->pagetable, addr_t, 1, 1);
         }
-      }      
+      }
       return 0;
     }
   }

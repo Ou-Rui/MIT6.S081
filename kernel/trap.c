@@ -73,7 +73,7 @@ usertrap(void)
     
     uint64 va = r_stval();
     uint64 pa;
-    printf("scause=%d, va=%p\n", r_scause(), va);
+    printf("[%d]usertrap, va=%p\n", p->pid, va);
     if (va > MAXVA) {
       p->killed = 1;
       goto out;
@@ -93,7 +93,6 @@ usertrap(void)
           goto out;
         }
         memset((void*)pa, 0, PGSIZE);
-        printf("pa=%p\n", pa);
 
         // read from file
         begin_op();
@@ -117,7 +116,9 @@ usertrap(void)
         goto out;
       }
     }
-    panic("no such vma");
+    printf("usertrap(): unexpected scause %p pid=%d\n", r_scause(), p->pid);
+    printf("            sepc=%p stval=%p\n", r_sepc(), r_stval());
+    p->killed = 1;
   } else if((which_dev = devintr()) != 0){
     // ok
   } else {

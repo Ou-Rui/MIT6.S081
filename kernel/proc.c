@@ -276,6 +276,18 @@ fork(void)
     return -1;
   }
 
+  np->mmap_addr = p->mmap_addr;
+  for (int i = 0; i < NVMA; i++) {
+    np->vmalist[i].addr = p->vmalist[i].addr;
+    np->vmalist[i].length = p->vmalist[i].length;
+    np->vmalist[i].prot = p->vmalist[i].prot;
+    np->vmalist[i].flags = p->vmalist[i].flags;
+    np->vmalist[i].offset = p->vmalist[i].offset;
+    np->vmalist[i].npage = p->vmalist[i].npage;
+    if (p->vmalist[i].f)
+      np->vmalist[i].f = filedup(p->vmalist[i].f);
+  }
+
   // Copy user memory from parent to child.
   if(uvmcopy(p->pagetable, np->pagetable, p->sz) < 0){
     freeproc(np);
@@ -342,9 +354,18 @@ void
 exit(int status)
 {
   struct proc *p = myproc();
+  printf("[%d]exit start\n", p->pid);
 
   if(p == initproc)
     panic("init exiting");
+
+  struct vma *v = p->vmalist;
+  for (int i = 0; i < NVMA; i++) {
+    for (uint64 addr_t = v[i].addr; addr_t < v[i].addr + v[i].length; addr_t += PGSIZE) {
+      printf("[%d]exit: munmap v[%d], addr\n", p->pid, i, addr_t);
+      munmap(addr_t, PGSIZE);
+    }
+  }
 
   // Close all open files.
   for(int fd = 0; fd < NOFILE; fd++){

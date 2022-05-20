@@ -59,16 +59,17 @@ sys_mmap(void)
   int prot, flags;
   int fd;
   struct file *f;
+  struct proc *p = myproc();
 
   if (argaddr(0, &addr) < 0 || argaddr(1, &length) < 0 || argint(2, &prot) < 0 || 
       argint(3, &flags) < 0 || argfd(4, &fd, &f) < 0 || argaddr(5, &offset) < 0)
     return (uint64)-1;
 
+  printf("[%d]mmap start, addr=%p, length=%d\n", p->pid, addr, length);
   // Contradiction: file not writable, while mmap need to write back
   if ((!f->writable) && (prot & PROT_WRITE) && (flags == MAP_SHARED))
     return (uint64)-1;
 
-  struct proc *p = myproc();
   // find space for Memory-Mapped File
   if (addr == 0) {
     p->mmap_addr = PGROUNDDOWN(p->mmap_addr - length);
@@ -87,10 +88,11 @@ sys_mmap(void)
       v[i].offset = offset;
       v[i].npage = NPAGE(length);
       filedup(f);   // increment file's reference counter
+      printf("[%d]mmap find v[%d], npage=%d, addr=%p\n", p->pid, i, v[i].npage, addr);
       return addr;
     }
   }
-
+  
   return (uint64)-1;
 }
 
