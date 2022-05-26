@@ -126,10 +126,10 @@ e1000_transmit(struct mbuf *m)
   // forward tail pointer
   regs[E1000_TDT] = (index + 1) % TX_RING_SIZE;
 
-  if (&tx_ring[index] == 0 || tx_mbufs[index] == 0) {
-    release(&e1000_lock);
-    return -1;
-  }
+  // if (&tx_ring[index] == 0 || tx_mbufs[index] == 0) {
+  //   release(&e1000_lock);
+  //   return -1;
+  // }
 
   release(&e1000_lock);
   return 0;
