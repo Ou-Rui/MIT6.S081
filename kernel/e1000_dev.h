@@ -108,7 +108,7 @@ struct tx_desc
   uint16 special;
 };
 
-/* Receive Descriptor bit definitions [E1000 3.2.3.1] */
+/* Receive Descriptor status bit definitions [E1000 3.2.3.1] */
 #define E1000_RXD_STAT_DD       0x01    /* Descriptor Done */
 #define E1000_RXD_STAT_EOP      0x02    /* End of Packet */
 

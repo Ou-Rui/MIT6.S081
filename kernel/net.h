@@ -1,6 +1,7 @@
 //
 // packet buffer management
 //
+#include "types.h"
 
 #define MBUF_SIZE              2048
 #define MBUF_DEFAULT_HEADROOM  128

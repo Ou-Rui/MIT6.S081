@@ -67,8 +67,8 @@ e1000_init(uint32 *xregs)
   regs[E1000_RDLEN] = sizeof(rx_ring);
 
   // filter by qemu's MAC address, 52:54:00:12:34:56
-  regs[E1000_RA] = 0x12005452;
-  regs[E1000_RA+1] = 0x5634 | (1<<31);
+  regs[E1000_RA] = 0x12005452;          // RAL
+  regs[E1000_RA+1] = 0x5634 | (1<<31);  // RAH, AV(bit31): Address Valid
   // multicast table
   for (int i = 0; i < 4096/32; i++)
     regs[E1000_MTA + i] = 0;
@@ -102,6 +102,7 @@ e1000_transmit(struct mbuf *m)
   // the TX descriptor ring so that the e1000 sends it. Stash
   // a pointer so that it can be freed after sending.
   //
+  printf("[trans]");
   
   return 0;
 }
@@ -115,6 +116,9 @@ e1000_recv(void)
   // Check for packets that have arrived from the e1000
   // Create and deliver an mbuf for each packet (using net_rx()).
   //
+  printf("[recv]");
+
+
 }
 
 void
